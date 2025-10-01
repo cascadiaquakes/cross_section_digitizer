@@ -43,8 +43,21 @@ class DigitizeMapTool(QgsMapToolEmitPoint):
     def clear_points(self):
         """Clear all points"""
         self.points.clear()
+        sc = None
+        try:
+            sc = self.canvas().scene() if self.canvas() else None
+        except Exception:
+            sc = None
         for marker in self.markers:
-            self.canvas().scene().removeItem(marker)
+            try:
+                if sc is not None:
+                    sc.removeItem(marker)
+            except Exception:
+                pass
+            try:
+                marker.deleteLater()
+            except Exception:
+                pass
         self.markers.clear()
         
     def set_point_color(self, color):
@@ -80,7 +93,20 @@ class ReferencePointTool(QgsMapToolEmitPoint):
         """Set the reference point"""
         # Remove previous marker
         if self.marker:
-            self.canvas().scene().removeItem(self.marker)
+            sc = None
+            try:
+                sc = self.canvas().scene() if self.canvas() else None
+            except Exception:
+                sc = None
+            try:
+                if sc is not None:
+                    sc.removeItem(self.marker)
+            except Exception:
+                pass
+            try:
+                self.marker.deleteLater()
+            except Exception:
+                pass
             
         # Create new marker
         self.marker = QgsVertexMarker(self.canvas())
@@ -93,9 +119,22 @@ class ReferencePointTool(QgsMapToolEmitPoint):
     def clear_point(self):
         """Clear the reference point"""
         if self.marker:
-            self.canvas().scene().removeItem(self.marker)
+            sc = None
+            try:
+                sc = self.canvas().scene() if self.canvas() else None
+            except Exception:
+                sc = None
+            try:
+                if sc is not None:
+                    sc.removeItem(self.marker)
+            except Exception:
+                pass
+            try:
+                self.marker.deleteLater()
+            except Exception:
+                pass
             self.marker = None
-            
+
     def deactivate(self):
         """Clean up when tool is deactivated"""
         super().deactivate()
@@ -171,28 +210,80 @@ class PointMarkerManager:
     def clear_series(self, series_name):
         """Clear all markers for a series"""
         if series_name in self.series_markers:
+            sc = None
+            try:
+                sc = self.canvas.scene() if self.canvas else None
+            except Exception:
+                sc = None
             for marker in self.series_markers[series_name]:
-                self.canvas.scene().removeItem(marker)
+                try:
+                    if sc is not None:
+                        sc.removeItem(marker)
+                except Exception:
+                    pass
+                try:
+                    marker.deleteLater()
+                except Exception:
+                    pass
             del self.series_markers[series_name]
             
     def clear_georef_points(self):
         """Clear all georeferencing markers"""
+        sc = None
+        try:
+            sc = self.canvas.scene() if self.canvas else None
+        except Exception:
+            sc = None
         for marker in self.georef_markers:
-            self.canvas.scene().removeItem(marker)
+            try:
+                if sc is not None:
+                    sc.removeItem(marker)
+            except Exception:
+                pass
+            try:
+                marker.deleteLater()
+            except Exception:
+                pass
         self.georef_markers.clear()
         
     def clear_reference_points(self):
         """Clear all reference markers"""
+        sc = None
+        try:
+            sc = self.canvas.scene() if self.canvas else None
+        except Exception:
+            sc = None
         for marker in self.reference_markers.values():
-            self.canvas.scene().removeItem(marker)
+            try:
+                if sc is not None:
+                    sc.removeItem(marker)
+            except Exception:
+                pass
+            try:
+                marker.deleteLater()
+            except Exception:
+                pass
         self.reference_markers.clear()
         
     def clear_all(self):
         """Clear all markers"""
         # Clear series markers
+        sc = None
+        try:
+            sc = self.canvas.scene() if self.canvas else None
+        except Exception:
+            sc = None
         for markers in self.series_markers.values():
             for marker in markers:
-                self.canvas.scene().removeItem(marker)
+                try:
+                    if sc is not None:
+                        sc.removeItem(marker)
+                except Exception:
+                    pass
+                try:
+                    marker.deleteLater()
+                except Exception:
+                    pass
         self.series_markers.clear()
         
         # Clear georef markers

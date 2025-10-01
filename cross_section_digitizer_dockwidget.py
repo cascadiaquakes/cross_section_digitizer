@@ -1493,9 +1493,8 @@ class CrossSectionDigitizerDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     def clear_project(self):
         """Clear all project data with confirmation dialog"""
-        # Show confirmation dialog
         reply = QMessageBox.question(
-            self, "Clear Project", 
+            self, "Clear Project",
             "This will clear all project data including:\n\n"
             "• Loaded image\n"
             "• Reference points and coordinate system\n"
@@ -1504,87 +1503,131 @@ class CrossSectionDigitizerDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             "Are you sure you want to continue?\n\n"
             "This action cannot be undone.",
             QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No  # Default to No for safety
+            QMessageBox.No
         )
-        
         if reply != QMessageBox.Yes:
             return
-        
+
+        iv = getattr(self, "image_viewer", None)
+
+        # Pre-disable digitizing and disconnect click signal to prevent events during teardown
+        if iv is not None:
+            # 1) Disable the mode (no signals)
+            try:
+                iv.set_digitize_mode(False)
+            except Exception:
+                pass
+            
+            # 2) Make the action reflect the state, without emitting toggled()
+            try:
+                act = iv.action_digitize
+                act.blockSignals(True)
+                act.setChecked(False)
+                act.blockSignals(False)
+            except Exception:
+                pass
+            
+            # 3) Prevent any clicks from coming through during teardown
+            try:
+                iv.mouseClicked.disconnect(self.handle_image_click)
+            except Exception:
+                pass
+            
+        self.blockSignals(True)
         try:
-            # Clear image
+            # Image path + label
             self.image_path = None
             self.label_image_path.setText("No image loaded")
-            
-            # Clear image viewer
-            if hasattr(self, 'image_viewer'):
-                # Clear the scene - this will automatically remove all graphics items
-                if hasattr(self.image_viewer, 'scene') and self.image_viewer.scene:
-                    self.image_viewer.scene.clear()
-                
-                # Reset internal marker tracking without trying to remove items from scene
-                if hasattr(self.image_viewer, 'reference_markers'):
-                    self.image_viewer.reference_markers.clear()
-                if hasattr(self.image_viewer, 'series_markers'):
-                    self.image_viewer.series_markers.clear()
-                if hasattr(self.image_viewer, 'georef_markers'):
-                    self.image_viewer.georef_markers.clear()
-                    
-                # Reset image state
-                self.image_viewer.image_item = None
-                self.image_viewer.image_pixmap = None
-                
-            # Clear reference points
-            if hasattr(self, 'reference_points'):
-                self.reference_points.clear()
-            
-            # Disable coordinate transformation callback
-            if hasattr(self, 'image_viewer'):
-                self.image_viewer.set_coordinate_transform_callback(None)
-            
-            # Reset reference point UI values
+
+            # Clear the graphics scene and viewer-side state
+            if iv is not None:
+                sc = None
+                try:
+                    sc = iv.scene if hasattr(iv, "scene") else None
+                except Exception:
+                    sc = None
+                if sc is not None:
+                    try:
+                        sc.clear()
+                    except Exception:
+                        pass
+
+                for attr in ("reference_markers", "series_markers", "georef_markers"):
+                    if hasattr(iv, attr):
+                        try:
+                            getattr(iv, attr).clear()
+                        except Exception:
+                            # Reset to empty if it's become unusable
+                            setattr(iv, attr, {} if attr != "georef_markers" else [])
+
+                iv.image_item = None
+                iv.image_pixmap = None
+                try:
+                    iv.set_coordinate_transform_callback(None)
+                except Exception:
+                    pass
+
+            # Reference points (model side)
+            if hasattr(self, "reference_points"):
+                try:
+                    self.reference_points.clear()
+                except Exception:
+                    self.reference_points = {}
+
+            # Reset reference/plot UI values
             self.spin_origin_x.setValue(0.0)
             self.spin_origin_y.setValue(0.0)
             self.spin_x_ref.setValue(0.0)
             self.spin_y_ref.setValue(0.0)
-            
-            # Clear plot georeferencing points
-            if hasattr(self, 'plot_georef_points'):
-                self.plot_georef_points.clear()
-                
-            # Reset plot coordinate UI values
+
+            if hasattr(self, "plot_georef_points"):
+                try:
+                    self.plot_georef_points.clear()
+                except Exception:
+                    self.plot_georef_points = []
+
             self.spin_start_plot_x.setValue(0.0)
             self.spin_start_plot_y.setValue(0.0)
             self.spin_end_plot_x.setValue(0.0)
             self.spin_end_plot_y.setValue(0.0)
-            
-            # Reset geographic coordinates
+
             self.spin_start_lon.setValue(0.0)
             self.spin_start_lat.setValue(0.0)
             self.spin_start_elev.setValue(0.0)
             self.spin_end_lon.setValue(0.0)
             self.spin_end_lat.setValue(0.0)
             self.spin_end_elev.setValue(0.0)
-            
-            # Clear data series
-            if hasattr(self, 'data_series'):
-                self.data_series.clear()
+
+            # Data series + UI lists
+            if hasattr(self, "data_series"):
+                try:
+                    self.data_series.clear()
+                except Exception:
+                    self.data_series = {}
+
             self.current_series = None
-            self.combo_series.clear()
-            self.list_points.clear()
-            
-            # Reset digitizing mode
-            self.digitizing_mode = None
-            if hasattr(self, 'image_viewer'):
-                self.image_viewer.action_digitize.setChecked(False)
-                self.image_viewer.toggle_digitize_mode(False)
-            
-            # Disable digitize points button
-            self.btn_digitize_points.setChecked(False)
-            
+            try:
+                self.combo_series.clear()
+            except Exception:
+                pass
+            try:
+                self.list_points.clear()
+            except Exception:
+                pass
+
+                
+            try:
+                self.btn_digitize_points.setChecked(False)
+            except Exception:
+                pass
+
             QMessageBox.information(self, "Success", "Project cleared successfully!")
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to clear project: {str(e)}")
+        finally:
+            self.blockSignals(False)
+
 
     def activate_start_geo_tool(self):
         """Activate map tool for selecting start point geographic coordinates"""

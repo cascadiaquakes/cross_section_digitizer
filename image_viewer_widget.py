@@ -3,15 +3,13 @@
 Image viewer widget for cross-section digitizing
 Inspired by QGIS Georeferencer tool
 """
-
-from qgis.PyQt.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSizeF, QSize, QSettings
-from qgis.PyQt.QtGui import (QPixmap, QPen, QBrush, QColor, QTransform, 
-                            QWheelEvent, QPainter, QCursor, QIcon)
+import sip
+from qgis.PyQt.QtCore import Qt, QPointF, QRectF, pyqtSignal,  QSize, QSettings
+from qgis.PyQt.QtGui import (QPixmap, QPen, QColor, QPainter, QCursor)
 from qgis.PyQt.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QToolBar,
                                 QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
-                                QAction, QLabel, QGraphicsEllipseItem, QGraphicsLineItem,
-                                QSizePolicy, QGraphicsItem, QMenu, QColorDialog)
-import os
+                                QAction, QLabel, QGraphicsLineItem,
+                                QGraphicsItem, QMenu, QColorDialog)
 
 
 class CrossGraphicsItem(QGraphicsItem):
@@ -74,35 +72,47 @@ class ImageGraphicsView(QGraphicsView):
         
     def create_crosshair_lines(self):
         """Create crosshair lines for digitizing mode"""
-        if not self.h_line:
+        if self.scene() is None:
+            return
+        if self.h_line is None or self.v_line is None:
             pen = QPen(QColor(128, 128, 128), 0.5, Qt.DashLine)
             self.h_line = self.scene().addLine(0, 0, 0, 0, pen)
             self.v_line = self.scene().addLine(0, 0, 0, 0, pen)
-            self.h_line.setZValue(999)  # Below markers but above image
-            self.v_line.setZValue(999)
-            self.h_line.hide()
-            self.v_line.hide()
-            
+            if self.h_line:
+                self.h_line.setZValue(999)
+                self.h_line.hide()
+            if self.v_line:
+                self.v_line.setZValue(999)
+                self.v_line.hide()
+            self.crosshair_visible = False
+
+    def _remove_crosshair_lines(self):
+        for name in ('h_line', 'v_line'):
+            item = getattr(self, name, None)
+            if item is None:
+                continue
+            # IMPORTANT: never call methods on a deleted Qt object
+            if not sip.isdeleted(item):
+                scn = item.scene()
+                if scn is not None:
+                    scn.removeItem(item)
+            setattr(self, name, None)
+ 
     def update_crosshair(self, scene_pos):
         """Update crosshair position"""
-        if self.digitize_mode and self.h_line and self.v_line:
-            # Get scene rect bounds
-            rect = self.sceneRect()
-            
-            # Update horizontal line
-            self.h_line.setLine(rect.left(), scene_pos.y(), rect.right(), scene_pos.y())
-            
-            # Update vertical line
-            self.v_line.setLine(scene_pos.x(), rect.top(), scene_pos.x(), rect.bottom())
-            
-            if not self.crosshair_visible:
-                self.h_line.show()
-                self.v_line.show()
-                self.crosshair_visible = True
-        elif self.h_line and self.v_line and self.crosshair_visible:
-            self.h_line.hide()
-            self.v_line.hide()
-            self.crosshair_visible = False
+        h = getattr(self, 'h_line', None)
+        v = getattr(self, 'v_line', None)
+        # Bail if missing or already deleted by a scene clear
+        if h is None or v is None:
+            return
+        if sip.isdeleted(h) or sip.isdeleted(v):
+            self.h_line = None
+            self.v_line = None
+            return
+        # safe to update
+        rect = self.sceneRect()
+        h.setLine(rect.left(), scene_pos.y(), rect.right(), scene_pos.y())
+        v.setLine(scene_pos.x(), rect.top(), scene_pos.x(), rect.bottom())
         
     def wheelEvent(self, event):
         """Handle mouse wheel for zooming"""
@@ -143,27 +153,55 @@ class ImageGraphicsView(QGraphicsView):
             super().mousePressEvent(event)
             
     def mouseMoveEvent(self, event):
-        """Handle mouse move events"""
-        scene_pos = self.mapToScene(event.pos())
-        self.mousePositionChanged.emit(scene_pos)
-        
-        # Update crosshair
-        self.update_crosshair(scene_pos)
-        
-        if self._pan_start_pos:
-            # Panning
+        """Handle mouse move events (safe after scene.clear())."""
+        scene_pos = None
+
+        # Map to scene and emit position if we have a scene
+        sc = None
+        try:
+            sc = self.scene()
+        except Exception:
+            sc = None
+
+        if sc is not None:
+            try:
+                scene_pos = self.mapToScene(event.pos())
+                try:
+                    self.mousePositionChanged.emit(scene_pos)
+                except Exception:
+                    pass
+
+                # Update crosshair only when in digitize mode and items are valid
+                if getattr(self, 'digitize_mode', False):
+                    h = getattr(self, 'h_line', None)
+                    v = getattr(self, 'v_line', None)
+                    # Guard against use-after-free
+                    h_ok = (h is not None) and not sip.isdeleted(h)
+                    v_ok = (v is not None) and not sip.isdeleted(v)
+
+                    if h_ok or v_ok:
+                        try:
+                            self.update_crosshair(scene_pos)
+                        except Exception:
+                            pass
+            except Exception:
+                scene_pos = None
+
+        # Custom panning with scrollbars
+        if getattr(self, '_pan_start_pos', None):
             delta = event.pos() - self._pan_start_pos
             self._pan_start_pos = event.pos()
-            
-            # Update scroll bars
-            self.horizontalScrollBar().setValue(
-                self.horizontalScrollBar().value() - delta.x()
-            )
-            self.verticalScrollBar().setValue(
-                self.verticalScrollBar().value() - delta.y()
-            )
-        else:
+            try:
+                self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+                self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            except Exception:
+                pass
+
+        # Let base class process the event too
+        try:
             super().mouseMoveEvent(event)
+        except Exception:
+            pass
             
     def mouseReleaseEvent(self, event):
         """Handle mouse release events"""
@@ -196,22 +234,24 @@ class ImageGraphicsView(QGraphicsView):
         else:
             self.setCursor(QCursor(Qt.ArrowCursor))
             
-    def set_digitize_mode(self, enabled):
+    def set_digitize_mode(self, enabled: bool):
         """Enable/disable digitize mode"""
-        self.digitize_mode = enabled
-        if enabled:
-            self.pan_mode = False
-            self.setDragMode(QGraphicsView.NoDrag)
-            self.setCursor(QCursor(Qt.CrossCursor))
-            # Create crosshair lines if needed
-            self.create_crosshair_lines()
+        self.digitize_mode = bool(enabled)
+        self.setMouseTracking(self.digitize_mode)
+        if self.digitize_mode:
+            # cursor + ensure crosshair exists
+            try: self.setCursor(QCursor(Qt.CrossCursor))
+            except Exception: pass
+            if getattr(self, 'h_line', None) is None or sip.isdeleted(getattr(self, 'h_line', None)):
+                self.h_line = QGraphicsLineItem()
+                self.scene().addItem(self.h_line)
+            if getattr(self, 'v_line', None) is None or sip.isdeleted(getattr(self, 'v_line', None)):
+                self.v_line = QGraphicsLineItem()
+                self.scene().addItem(self.v_line)
         else:
-            self.setCursor(QCursor(Qt.ArrowCursor))
-            # Hide crosshair
-            if self.h_line and self.v_line:
-                self.h_line.hide()
-                self.v_line.hide()
-                self.crosshair_visible = False
+            try: self.setCursor(QCursor(Qt.ArrowCursor))
+            except Exception: pass
+            self._remove_crosshair_lines()
             
     def fit_to_window(self):
         """Fit the image to the view"""
@@ -374,7 +414,7 @@ class ImageViewerWidget(QWidget):
             
     def toggle_digitize_mode(self, checked):
         """Toggle digitize mode"""
-        self.view.set_digitize_mode(checked)
+        self.view.set_digitize_mode(checked) 
         if checked:
             self.action_pan.setChecked(False)
             
