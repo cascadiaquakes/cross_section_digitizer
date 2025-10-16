@@ -176,6 +176,18 @@ class CrossSectionDigitizer:
 
         # disconnects
         self.dockwidget.closingPlugin.disconnect(self.onClosePlugin)
+    
+        try:
+            dw = getattr(self, "dockwidget", None)
+            if dw is not None:
+                iv = getattr(dw, "image_viewer", None)
+                if iv is not None:
+                    try:
+                        iv.set_digitize_mode(False)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
         self.pluginIsActive = False
 
